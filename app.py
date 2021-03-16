@@ -52,12 +52,6 @@ def display_all_image():
 
     # search function
     if request.args.get("search"):
-        # if(request.args.get("searchField") == "caption"):
-        #     pictures = Picture.query.filter(Picture.caption.ilike(
-        #         f'%{request.args.get("search")}%')) 
-        # else:
-        #     pictures = Picture.query.filter(Picture.photographer.ilike(
-        #         f'%{request.args.get("search")}%'))
 
         pictures = Picture.query.filter(db.or_(
             Picture.caption.ilike(
@@ -92,31 +86,49 @@ def add_image():
 
         image = Image.open(f'{filename}')
 
-        exif = {}
-        for tag, value in image._getexif().items():
-            if tag in TAGS:
-                exif[TAGS[tag]] = value
+        # Only images taken by phone or camera will have exif info,
+        # others would throw an AttricuteError because exif doesn't exist.
+        # The try/except block catches the AttributeError
+        # therefore all picture type can be uploaded.
 
-        picture = Picture(
-            photographer=form.photographer.data,
-            caption=form.caption.data,
-            date_time=exif.get('DateTime'),
-            camera_make=exif.get('Make'),
-            camera_model=exif.get('Model'),
-            iso=exif.get('ISOSpeedRatings'),
-            flash=exif.get('Flash'),
-            pic_width=exif.get('ExifImageWidth'),
-            pic_height=exif.get('ExifImageHeight'),
-            # location=exif[""],
-            image_url=IMAGE_URL,
-            file_name=filename
-        )
+        try:
+            exif = {}
+            for tag, value in image._getexif().items():
+                if tag in TAGS:
+                    exif[TAGS[tag]] = value
+
+            picture = Picture(
+                photographer=form.photographer.data,
+                caption=form.caption.data,
+                date_time=exif.get('DateTime'),
+                camera_make=exif.get('Make'),
+                camera_model=exif.get('Model'),
+                iso=exif.get('ISOSpeedRatings'),
+                flash=exif.get('Flash'),
+                pic_width=exif.get('ExifImageWidth'),
+                pic_height=exif.get('ExifImageHeight'),
+                image_url=IMAGE_URL,
+                file_name=filename
+            )
+        except AttributeError:
+            picture = Picture(
+                photographer=form.photographer.data,
+                caption=form.caption.data,
+                date_time=None,
+                camera_make=None,
+                camera_model=None,
+                iso=None,
+                flash=None,
+                pic_width=None,
+                pic_height=None,
+                image_url=IMAGE_URL,
+                file_name=filename
+            )
 
         db.session.add(picture)
         db.session.commit()
 
-# TODO: f is the entire image object and we can possibly use that instead of filename
-
+        # upload the image to aws
         upload_file_bucket = BUCKET
         upload_file_key = picture.id
         client.upload_file(filename,
@@ -124,75 +136,19 @@ def add_image():
                            str(upload_file_key),
                            ExtraArgs={'ACL': 'public-read'})
         os.remove(filename)
-        return redirect('/images')
+        return redirect(f'/images/{picture.id}')
     else:
         return render_template("add_picture.html", form=form)
 
 
 @app.route("/images/<int:id>", methods=["GET"])
 def edit_image(id):
-    """ Route for viewing and editing an image """
-
-    # if os.path.exists(f'./static/{id}.png'):
-    #     # print('exists ******************* ')
-    #     return render_template('edit_picture.html',
-    #                            url=f'../static/{id}.png', id=id)
-
-    # print('doesnt exist *********')
+    """ Route for the edit page """
     return render_template('edit_picture.html', url=f'{IMAGE_URL}{id}', id=id)
-
-
-# @app.route("/images/<id>/save", methods=["GET", "POST"])
-# def edit_image_save(id):
-
-#     filename = f'./static/{id}.png'
-
-#     currentPicObj = Picture.query.get_or_404(int(id))
-
-#     picture = Picture(
-#         photographer=currentPicObj.photographer,
-#         caption=currentPicObj.caption,
-#         date_time=currentPicObj.date_time,
-#         camera_make=currentPicObj.camera_make,
-#         camera_model=currentPicObj.camera_model,
-#         iso=currentPicObj.iso,
-#         flash=currentPicObj.flash,
-#         pic_width=currentPicObj.pic_width,
-#         pic_height=currentPicObj.pic_height,
-#         # location=exif[""],
-#         image_url=IMAGE_URL,
-#         file_name=f'{id}.png',
-#     )
-
-#     db.session.add(picture)
-#     db.session.commit()
-
-#     upload_file_bucket = BUCKET
-#     upload_file_key = str(picture.id)
-#     client.upload_file(
-#         filename,
-#         upload_file_bucket,
-#         upload_file_key,
-#         ExtraArgs={'ACL': 'public-read'}
-#     )
-
-#     os.remove(filename)
-#     os.remove(f'{id}.png')
-#     # print('saved to aws')
-#     return redirect(f'/images/{picture.id}')
-
-
-# @app.route("/images/<id>/cancel", methods=["GET", "POST"])
-# def edit_image_cancel(id):
-
-#     filename = f'{id}.png'
-#     os.remove(filename)
-#     os.remove(f'./static/{filename}')
-#     return redirect(f'/images/{id}')
-
 
 @app.route("/images/<int:id>/<edit>", methods=["GET", "POST"])
 def edit_image_edit(id, edit):
+    """ Route for specific image edit. """
 
     filename = f'{id}.png'
     s3 = boto3.resource('s3',
@@ -200,8 +156,7 @@ def edit_image_edit(id, edit):
                         aws_secret_access_key=SECRET_KEY,
                         )
 
-    # if not os.path.exists(f'./static/{filename}'):
-        # Download the picture
+    # download the file from AWS S3
     try:
         s3.Bucket(BUCKET).download_file(str(id), str(id))
 
@@ -212,15 +167,13 @@ def edit_image_edit(id, edit):
             raise
     os.rename(str(id), filename)
     image = Image.open(filename)
-    # else:
-    #     image = Image.open(f'./static/{filename}')
-    #     # print("opening image from images")
 
+    # code below takes care of all the edits
     if edit == "grayscale":
         newImage = ImageOps.grayscale(image)
 
     if edit == "left":
-        # print('edit left')
+        
         newImage = image.rotate(90, expand=True)
 
     if edit == "right":
@@ -250,10 +203,14 @@ def edit_image_edit(id, edit):
     newImage.save(os.path.join(filename))
     upload_file_bucket = BUCKET
     upload_file_key = str(id)
+
+    # save the edits and update photo to aws s3 bucket
     client.upload_file(
         filename,
         upload_file_bucket,
         upload_file_key,
         ExtraArgs={'ACL': 'public-read'}
     )
+
+    os.remove(filename)
     return redirect(f'/images/{id}')
