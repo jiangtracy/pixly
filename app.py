@@ -1,20 +1,35 @@
-import boto3
-import os
 from flask import Flask, request, redirect, jsonify, render_template
 from flask_debugtoolbar import DebugToolbarExtension
-from models import (db, connect_db, Picture)
+from flask_caching import Cache
+
+
 from PIL import Image, ImageFilter, ExifTags, ImageOps, ImageEnhance, ImageFile
 from PIL.ExifTags import TAGS
 from forms import UploadForm
+from models import (db, connect_db, Picture)
 from werkzeug.utils import secure_filename
+
 import botocore
+import boto3
+import os
+
 
 ACCESS_KEY_ID = os.environ["ACCESS_KEY_ID"]
 SECRET_KEY = os.environ["SECRET_KEY"]
 BUCKET = os.environ["BUCKET"]
 IMAGE_URL = os.environ["IMAGE_URL"]
 
+config = {
+    "DEBUG": True,          # some Flask specific configs
+    "CACHE_TYPE": "SimpleCache",  # Flask-Caching related configs
+    "CACHE_DEFAULT_TIMEOUT": 300
+}
+
 app = Flask(__name__, static_folder="./static")
+
+# tell Flask to use the above defined config
+app.config.from_mapping(config)
+cache = Cache(app)
 
 # Get DB_URI from environ variable (useful for production/testing) or,
 # if not set there, use development local db.
@@ -212,5 +227,8 @@ def edit_image_edit(id, edit):
         ExtraArgs={'ACL': 'public-read'}
     )
 
+    cache.clear()
     os.remove(filename)
+
+    cache.clear()
     return redirect(f'/images/{id}')
