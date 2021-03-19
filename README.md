@@ -1,5 +1,6 @@
 # Pixly
 
+<img src="static/images/pixly-demo.gif" width="128"/>
 - An image editing web app built with Python, Flask, Pillow, and AWS S3.
 
 # Functionality
