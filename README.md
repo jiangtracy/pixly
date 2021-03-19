@@ -5,6 +5,7 @@
 # Functionality
 
 - Users can upload images from their laptops or mobile devices and edit their images. All the images will be saved to AWS S3 and available for public to view. 
+- Under the picture tab, users can search image by title or photographer name.
 - https://pixly.herokuapp.com/
 
 # Run the app
